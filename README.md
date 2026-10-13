@@ -24,6 +24,44 @@ O NotionPad resolve esse dilema unindo três mundos:
 
 ---
 
+## ⚡ Como Baixar e Usar (Sem Instalação - 100% Portátil)
+
+O **NotionPad C#** foi projetado para ter **zero atrito**: você **não precisa de instalador (`setup.exe`)**, não precisa esperar telas de carregamento e não precisa poluir o registro do Windows com arquivos temporários.
+
+### 📥 1. Baixar e Rodar na Hora
+1. Acesse a página oficial de [**Releases no GitHub**](https://github.com/victorwilliames/notionpad-csharp/releases/latest).
+2. Baixe o executável **`NotionPad.exe`** (ou o arquivo `NotionPad-v1.0.0-Portable.zip`).
+3. Dê um duplo-clique no **`NotionPad.exe`**.
+4. **Pronto! O editor abre imediatamente em ~100 milissegundos.**
+5. *(Recomendado)* Guarde o `NotionPad.exe` em uma pasta fixa (por exemplo, `C:\Program Files\NotionPad` ou na sua pasta de Documentos/Ferramentas) e crie um atalho na Área de Trabalho ou fixe na Barra de Tarefas.
+
+---
+
+## 📌 Como Definir o NotionPad como Programa Padrão (Abrir `.txt`, `.md`, `.html`, etc.)
+
+Quer que qualquer arquivo de texto ou código abra direto no NotionPad com um simples duplo clique? Siga este passo a passo simples no Windows:
+
+### Método 1: Pelo menu "Abrir com" (Mais Rápido — leva 15 segundos)
+1. Clique com o **botão direito do mouse** em qualquer arquivo que você queira abrir com o NotionPad (por exemplo, um arquivo `.txt` ou `.md`).
+2. Passe o mouse sobre **"Abrir com"** e clique em **"Escolher outro aplicativo"** (ou *"Escolher aplicativo padrão"*).
+3. Na janela que abrir:
+   - Se o **NotionPad** já aparecer na lista, clique nele.
+   - Se não aparecer, role até o final, clique em **"Procurar outro aplicativo neste PC"** e selecione o seu `NotionPad.exe`.
+4. **Passo essencial:**
+   - **No Windows 11:** Clique no botão **"Sempre"** no rodapé da janela.
+   - **No Windows 10:** Marque a caixa de seleção **"Sempre usar este aplicativo para abrir arquivos .txt"** e clique em **OK**.
+5. **Pronto!** A partir de agora, qualquer arquivo `.txt` abrirá diretamente no **NotionPad C#** com o ícone oficial!
+
+> 💡 *Dica:* Repita esse mesmo processo simples uma única vez para outras extensões que você quiser associar, como `.md` (Markdown), `.html`, `.js`, etc.
+
+### Método 2: Pelas Configurações do Windows (Windows 10 e 11)
+1. Pressione `Win + I` no teclado para abrir as **Configurações do Windows**.
+2. Vá em **Aplicativos** > **Aplicativos padrão**.
+3. Na barra de pesquisa *"Digite um tipo de arquivo ou tipo de link"*, digite `.txt` (ou `.md`).
+4. Clique no aplicativo atual e selecione o **NotionPad** na lista (ou aponte para onde você salvou o `NotionPad.exe`).
+
+---
+
 ## 💻 Stack Tecnológica (Como foi feito)
 
 O NotionPad foi construído com arquitetura de baixo nível e alta performance para Windows, sem qualquer dependência externa ou pacotes pesados:
