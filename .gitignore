@@ -1,0 +1,16 @@
+# Build / Binaries
+*.pdb
+*.obj
+*.log
+
+# IDE & Editor files
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
