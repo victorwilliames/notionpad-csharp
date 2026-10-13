@@ -2708,7 +2708,7 @@ namespace NotionPad
         {
             var dlg = new OpenFileDialog
             {
-                Filter = "Documentos suportados (*.notion;*.txt;*.md;*.rtf)|*.notion;*.txt;*.md;*.rtf|Páginas NotionPad (*.notion)|*.notion|Documentos de Texto (*.txt)|*.txt|Documentos Markdown (*.md)|*.md|Todos os arquivos (*.*)|*.*",
+                Filter = "Documentos de Texto (*.txt;*.md)|*.txt;*.md|Documento de Texto (*.txt)|*.txt|Documento Markdown (*.md)|*.md|Todos os arquivos (*.*)|*.*",
                 Title = "Abrir"
             };
             if (dlg.ShowDialog() == true)
@@ -2731,97 +2731,79 @@ namespace NotionPad
                 string metaC2 = "";
                 double metaOffsetY = 0.0;
 
-                string text = "";
+                string text = File.ReadAllText(filePath, Encoding.UTF8);
+                bool hadInlineTag = false;
 
-                if (ext == ".rtf")
+                // 1. If file has a legacy inline tag from before, clean it up!
+                if (text.StartsWith("<!-- notionpad:") || text.StartsWith("<!--notionpad:"))
                 {
-                    AddNewTab(title, "", filePath);
-                    var range = new TextRange(_currentDoc.Editor.Document.ContentStart, _currentDoc.Editor.Document.ContentEnd);
-                    using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+                    int endTag = text.IndexOf("-->");
+                    if (endTag != -1)
                     {
-                        range.Load(fs, DataFormats.Rtf);
-                    }
-                }
-                else
-                {
-                    text = File.ReadAllText(filePath, Encoding.UTF8);
-                    bool hadInlineTag = false;
-
-                    // 1. If file has a legacy or shared inline tag (e.g. from .notion or previous save)
-                    if (text.StartsWith("<!-- notionpad:") || text.StartsWith("<!--notionpad:"))
-                    {
-                        int endTag = text.IndexOf("-->");
-                        if (endTag != -1)
+                        hadInlineTag = true;
+                        string header = text.Substring(0, endTag);
+                        int colon = header.IndexOf(':');
+                        if (colon != -1)
                         {
-                            hadInlineTag = true;
-                            string header = text.Substring(0, endTag);
-                            int colon = header.IndexOf(':');
-                            if (colon != -1)
+                            string metaContent = header.Substring(colon + 1);
+                            string[] parts = metaContent.Split(';');
+                            foreach (string part in parts)
                             {
-                                string metaContent = header.Substring(colon + 1);
-                                string[] parts = metaContent.Split(';');
-                                foreach (string part in parts)
+                                int eq = part.IndexOf('=');
+                                if (eq != -1)
                                 {
-                                    int eq = part.IndexOf('=');
-                                    if (eq != -1)
-                                    {
-                                        string key = part.Substring(0, eq).Trim().ToLowerInvariant();
-                                        string val = part.Substring(eq + 1).Trim();
-                                        if (key == "title" && !string.IsNullOrEmpty(val)) metaTitle = Uri.UnescapeDataString(val);
-                                        else if (key == "icon") metaIcon = Uri.UnescapeDataString(val);
-                                        else if (key == "covertype") metaCoverType = val;
-                                        else if (key == "c1") metaC1 = Uri.UnescapeDataString(val);
-                                        else if (key == "c2") metaC2 = Uri.UnescapeDataString(val);
-                                        else if (key == "offset") double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out metaOffsetY);
-                                    }
+                                    string key = part.Substring(0, eq).Trim().ToLowerInvariant();
+                                    string val = part.Substring(eq + 1).Trim();
+                                    if (key == "title" && !string.IsNullOrEmpty(val)) metaTitle = Uri.UnescapeDataString(val);
+                                    else if (key == "icon") metaIcon = Uri.UnescapeDataString(val);
+                                    else if (key == "covertype") metaCoverType = val;
+                                    else if (key == "c1") metaC1 = Uri.UnescapeDataString(val);
+                                    else if (key == "c2") metaC2 = Uri.UnescapeDataString(val);
+                                    else if (key == "offset") double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out metaOffsetY);
                                 }
                             }
-                            text = text.Substring(endTag + 3);
-                            if (text.StartsWith("\r\n")) text = text.Substring(2);
-                            else if (text.StartsWith("\n")) text = text.Substring(1);
-
-                            // Store into local metadata database
-                            var imported = new DocMetadata
-                            {
-                                Title = metaTitle,
-                                Icon = metaIcon,
-                                CoverType = metaCoverType,
-                                CoverValue1 = metaC1,
-                                CoverValue2 = metaC2,
-                                CoverOffsetY = metaOffsetY
-                            };
-                            MetadataStore.SaveMetadata(filePath, imported);
-
-                            // Clean the tag out of the .txt / .md file so other apps see 100% clean text!
-                            if (ext == ".txt" || ext == ".md")
-                            {
-                                try
-                                {
-                                    File.WriteAllText(filePath, text, Encoding.UTF8);
-                                }
-                                catch { }
-                            }
                         }
-                    }
+                        text = text.Substring(endTag + 3);
+                        if (text.StartsWith("\r\n")) text = text.Substring(2);
+                        else if (text.StartsWith("\n")) text = text.Substring(1);
 
-                    // 2. If no inline tag, lookup invisibly in local MetadataStore!
-                    if (!hadInlineTag)
-                    {
-                        var stored = MetadataStore.GetMetadata(filePath);
-                        if (stored != null)
+                        // Store into local metadata database
+                        var imported = new DocMetadata
                         {
-                            if (!string.IsNullOrEmpty(stored.Title)) metaTitle = stored.Title;
-                            metaIcon = stored.Icon;
-                            metaCoverType = stored.CoverType;
-                            metaC1 = stored.CoverValue1;
-                            metaC2 = stored.CoverValue2;
-                            metaOffsetY = stored.CoverOffsetY;
-                        }
-                    }
+                            Title = metaTitle,
+                            Icon = metaIcon,
+                            CoverType = metaCoverType,
+                            CoverValue1 = metaC1,
+                            CoverValue2 = metaC2,
+                            CoverOffsetY = metaOffsetY
+                        };
+                        MetadataStore.SaveMetadata(filePath, imported);
 
-                    AddNewTab(metaTitle, text, filePath);
+                        // Auto-clean the file on disk so other apps see 100% clean text!
+                        try
+                        {
+                            File.WriteAllText(filePath, text, Encoding.UTF8);
+                        }
+                        catch { }
+                    }
                 }
 
+                // 2. If no inline tag, lookup invisibly in local MetadataStore!
+                if (!hadInlineTag)
+                {
+                    var stored = MetadataStore.GetMetadata(filePath);
+                    if (stored != null)
+                    {
+                        if (!string.IsNullOrEmpty(stored.Title)) metaTitle = stored.Title;
+                        metaIcon = stored.Icon;
+                        metaCoverType = stored.CoverType;
+                        metaC1 = stored.CoverValue1;
+                        metaC2 = stored.CoverValue2;
+                        metaOffsetY = stored.CoverOffsetY;
+                    }
+                }
+
+                AddNewTab(metaTitle, text, filePath);
                 ApplyLoadedMetadata(_currentDoc, metaTitle, metaIcon, metaCoverType, metaC1, metaC2, metaOffsetY);
                 _currentDoc.IsModified = false;
                 _currentDoc.UpdateTitle(metaTitle, false);
@@ -2919,7 +2901,7 @@ namespace NotionPad
             {
                 var dlg = new SaveFileDialog
                 {
-                    Filter = "Documento de Texto (*.txt)|*.txt|Página NotionPad (*.notion)|*.notion|Documento Markdown (*.md)|*.md|Documento Rich Text (*.rtf)|*.rtf|Todos os arquivos (*.*)|*.*",
+                    Filter = "Documento de Texto (*.txt)|*.txt|Documento Markdown (*.md)|*.md|Todos os arquivos (*.*)|*.*",
                     DefaultExt = ".txt",
                     FileName = string.IsNullOrEmpty(doc.Title) ? "Sem título" : doc.Title
                 };
@@ -2936,48 +2918,22 @@ namespace NotionPad
 
             try
             {
-                string ext = Path.GetExtension(doc.FilePath).ToLowerInvariant();
                 var range = new TextRange(doc.Editor.Document.ContentStart, doc.Editor.Document.ContentEnd);
 
-                if (ext == ".rtf")
-                {
-                    using (var fs = new FileStream(doc.FilePath, FileMode.Create, FileAccess.Write))
-                    {
-                        range.Save(fs, DataFormats.Rtf);
-                    }
-                }
-                else if (ext == ".notion")
-                {
-                    // Native format carries inline metadata for portability across machines
-                    var sb = new StringBuilder();
-                    sb.Append("<!-- notionpad:");
-                    sb.Append("title=" + Uri.EscapeDataString(doc.Title ?? "") + ";");
-                    sb.Append("icon=" + Uri.EscapeDataString(doc.EmojiIcon ?? "") + ";");
-                    sb.Append("coverType=" + (doc.CoverType ?? "none") + ";");
-                    sb.Append("c1=" + Uri.EscapeDataString(doc.CoverValue1 ?? "") + ";");
-                    sb.Append("c2=" + Uri.EscapeDataString(doc.CoverValue2 ?? "") + ";");
-                    sb.Append("offset=" + doc.CoverOffsetY.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
-                    sb.AppendLine(" -->");
-                    sb.Append(range.Text);
-                    File.WriteAllText(doc.FilePath, sb.ToString(), Encoding.UTF8);
-                }
-                else
-                {
-                    // PURE TEXT (.txt, .md, etc.) - ZERO TAGS in the file! 100% clean!
-                    File.WriteAllText(doc.FilePath, range.Text, Encoding.UTF8);
+                // 100% PURE CLEAN TEXT (.txt / .md) - ZERO TAGS in the file!
+                File.WriteAllText(doc.FilePath, range.Text, Encoding.UTF8);
 
-                    // Save visual metadata invisibly in local app database
-                    var meta = new DocMetadata
-                    {
-                        Title = doc.Title,
-                        Icon = doc.EmojiIcon,
-                        CoverType = doc.CoverType ?? "none",
-                        CoverValue1 = doc.CoverValue1 ?? "",
-                        CoverValue2 = doc.CoverValue2 ?? "",
-                        CoverOffsetY = doc.CoverOffsetY
-                    };
-                    MetadataStore.SaveMetadata(doc.FilePath, meta);
-                }
+                // Save visual metadata invisibly in local app database
+                var meta = new DocMetadata
+                {
+                    Title = doc.Title,
+                    Icon = doc.EmojiIcon,
+                    CoverType = doc.CoverType ?? "none",
+                    CoverValue1 = doc.CoverValue1 ?? "",
+                    CoverValue2 = doc.CoverValue2 ?? "",
+                    CoverOffsetY = doc.CoverOffsetY
+                };
+                MetadataStore.SaveMetadata(doc.FilePath, meta);
 
                 doc.UpdateTitle(doc.Title, false);
                 Title = doc.Title + " - NotionPad";
