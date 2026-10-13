@@ -2614,7 +2614,7 @@ namespace NotionPad
         {
             var dlg = new OpenFileDialog
             {
-                Filter = "Documentos suportados (*.txt;*.rtf;*.notion)|*.txt;*.rtf;*.notion|Todos os arquivos (*.*)|*.*",
+                Filter = "Documentos suportados (*.notion;*.txt;*.md;*.rtf)|*.notion;*.txt;*.md;*.rtf|Páginas NotionPad (*.notion)|*.notion|Documentos de Texto (*.txt)|*.txt|Documentos Markdown (*.md)|*.md|Todos os arquivos (*.*)|*.*",
                 Title = "Abrir"
             };
             if (dlg.ShowDialog() == true)
@@ -2630,6 +2630,15 @@ namespace NotionPad
                 string title = Path.GetFileNameWithoutExtension(filePath);
                 string ext = Path.GetExtension(filePath).ToLowerInvariant();
 
+                string metaTitle = title;
+                string metaIcon = "";
+                string metaCoverType = "none";
+                string metaC1 = "";
+                string metaC2 = "";
+                double metaOffsetY = 0.0;
+
+                string text = "";
+
                 if (ext == ".rtf")
                 {
                     AddNewTab(title, "", filePath);
@@ -2641,15 +2650,151 @@ namespace NotionPad
                 }
                 else
                 {
-                    string text = File.ReadAllText(filePath, Encoding.UTF8);
-                    AddNewTab(title, text, filePath);
+                    text = File.ReadAllText(filePath, Encoding.UTF8);
+
+                    if (text.StartsWith("<!-- notionpad:") || text.StartsWith("<!--notionpad:"))
+                    {
+                        int endTag = text.IndexOf("-->");
+                        if (endTag != -1)
+                        {
+                            string header = text.Substring(0, endTag);
+                            int colon = header.IndexOf(':');
+                            if (colon != -1)
+                            {
+                                string metaContent = header.Substring(colon + 1);
+                                string[] parts = metaContent.Split(';');
+                                foreach (string part in parts)
+                                {
+                                    int eq = part.IndexOf('=');
+                                    if (eq != -1)
+                                    {
+                                        string key = part.Substring(0, eq).Trim().ToLowerInvariant();
+                                        string val = part.Substring(eq + 1).Trim();
+                                        if (key == "title" && !string.IsNullOrEmpty(val)) metaTitle = Uri.UnescapeDataString(val);
+                                        else if (key == "icon") metaIcon = Uri.UnescapeDataString(val);
+                                        else if (key == "covertype") metaCoverType = val;
+                                        else if (key == "c1") metaC1 = Uri.UnescapeDataString(val);
+                                        else if (key == "c2") metaC2 = Uri.UnescapeDataString(val);
+                                        else if (key == "offset") double.TryParse(val, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out metaOffsetY);
+                                    }
+                                }
+                            }
+                            text = text.Substring(endTag + 3);
+                            if (text.StartsWith("\r\n")) text = text.Substring(2);
+                            else if (text.StartsWith("\n")) text = text.Substring(1);
+                        }
+                    }
+                    else if (text.StartsWith("---\r\n") || text.StartsWith("---\n"))
+                    {
+                        int endFront = text.IndexOf("\n---", 3);
+                        if (endFront != -1)
+                        {
+                            string front = text.Substring(0, endFront);
+                            string[] lines = front.Split('\n');
+                            foreach (string line in lines)
+                            {
+                                int col = line.IndexOf(':');
+                                if (col != -1)
+                                {
+                                    string k = line.Substring(0, col).Trim().ToLowerInvariant();
+                                    string v = line.Substring(col + 1).Trim();
+                                    if (k == "title" && !string.IsNullOrEmpty(v)) metaTitle = v;
+                                    else if (k == "icon") metaIcon = v;
+                                    else if (k == "cover" || k == "c1") metaC1 = v;
+                                    else if (k == "covertype") metaCoverType = v;
+                                }
+                            }
+                            int afterFront = text.IndexOf('\n', endFront + 4);
+                            if (afterFront != -1) text = text.Substring(afterFront + 1);
+                        }
+                    }
+
+                    AddNewTab(metaTitle, text, filePath);
                 }
-                _currentDoc.UpdateTitle(title, false);
+
+                ApplyLoadedMetadata(_currentDoc, metaTitle, metaIcon, metaCoverType, metaC1, metaC2, metaOffsetY);
+                _currentDoc.IsModified = false;
+                _currentDoc.UpdateTitle(metaTitle, false);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Erro ao abrir arquivo: " + ex.Message, "Erro", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void ApplyLoadedMetadata(TabDocument doc, string title, string icon, string coverType, string c1, string c2, double offsetY)
+        {
+            if (doc == null) return;
+
+            if (!string.IsNullOrEmpty(title))
+            {
+                doc.Title = title;
+                if (doc.TitleEditor != null)
+                {
+                    doc.TitleEditor.Text = title;
+                }
+                if (doc.TitlePlaceholder != null)
+                {
+                    doc.TitlePlaceholder.Visibility = Visibility.Collapsed;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(icon))
+            {
+                doc.EmojiIcon = icon;
+            }
+
+            if (!string.IsNullOrEmpty(coverType) && coverType != "none")
+            {
+                doc.CoverType = coverType;
+                doc.CoverValue1 = c1;
+                doc.CoverValue2 = c2;
+                doc.CoverOffsetY = offsetY;
+
+                if (coverType == "solid" && !string.IsNullOrEmpty(c1))
+                {
+                    try
+                    {
+                        var col = (Color)ColorConverter.ConvertFromString(c1);
+                        if (doc.CoverBanner != null) doc.CoverBanner.Background = new SolidColorBrush(col);
+                        if (doc.CoverImageElement != null) doc.CoverImageElement.Visibility = Visibility.Collapsed;
+                    }
+                    catch { }
+                }
+                else if (coverType == "gradient" && !string.IsNullOrEmpty(c1))
+                {
+                    try
+                    {
+                        var col1 = (Color)ColorConverter.ConvertFromString(c1);
+                        var col2 = string.IsNullOrEmpty(c2) ? col1 : (Color)ColorConverter.ConvertFromString(c2);
+                        var grad = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+                        grad.GradientStops.Add(new GradientStop(col1, 0.0));
+                        grad.GradientStops.Add(new GradientStop(col2, 1.0));
+                        if (doc.CoverBanner != null) doc.CoverBanner.Background = grad;
+                        if (doc.CoverImageElement != null) doc.CoverImageElement.Visibility = Visibility.Collapsed;
+                    }
+                    catch { }
+                }
+                else if ((coverType == "image" || coverType == "url") && !string.IsNullOrEmpty(c1))
+                {
+                    try
+                    {
+                        var bmp = new BitmapImage(new Uri(c1, UriKind.RelativeOrAbsolute));
+                        if (doc.CoverImageElement != null)
+                        {
+                            doc.CoverImageElement.Source = bmp;
+                            doc.CoverImageElement.Visibility = Visibility.Visible;
+                            if (doc.CoverTransform != null) doc.CoverTransform.Y = offsetY;
+                        }
+                        if (doc.CoverBanner != null) doc.CoverBanner.Background = Brushes.Black;
+                    }
+                    catch { }
+                }
+            }
+
+            doc.UpdateHeaderState();
+            doc.IsModified = false;
+            doc.UpdateTitle(doc.Title, false);
         }
 
         private bool SaveCurrentFile(bool saveAs)
@@ -2664,7 +2809,8 @@ namespace NotionPad
             {
                 var dlg = new SaveFileDialog
                 {
-                    Filter = "Documento Rich Text (*.rtf)|*.rtf|Documento de Texto (*.txt)|*.txt|Página Notion (*.notion)|*.notion|Todos os arquivos (*.*)|*.*",
+                    Filter = "Página NotionPad (*.notion)|*.notion|Documento de Texto (*.txt)|*.txt|Documento Markdown (*.md)|*.md|Documento Rich Text (*.rtf)|*.rtf|Todos os arquivos (*.*)|*.*",
+                    DefaultExt = ".notion",
                     FileName = string.IsNullOrEmpty(doc.Title) ? "Sem título" : doc.Title
                 };
                 if (dlg.ShowDialog() == true)
@@ -2683,7 +2829,7 @@ namespace NotionPad
                 string ext = Path.GetExtension(doc.FilePath).ToLowerInvariant();
                 var range = new TextRange(doc.Editor.Document.ContentStart, doc.Editor.Document.ContentEnd);
 
-                if (ext == ".rtf" || ext == ".notion")
+                if (ext == ".rtf")
                 {
                     using (var fs = new FileStream(doc.FilePath, FileMode.Create, FileAccess.Write))
                     {
@@ -2692,7 +2838,25 @@ namespace NotionPad
                 }
                 else
                 {
-                    File.WriteAllText(doc.FilePath, range.Text, Encoding.UTF8);
+                    var sb = new StringBuilder();
+                    bool hasCover = (doc.CoverType != "none" && !string.IsNullOrEmpty(doc.CoverValue1));
+                    bool hasIcon = !string.IsNullOrEmpty(doc.EmojiIcon);
+                    bool hasCustomTitle = (!string.IsNullOrEmpty(doc.Title) && doc.Title != "Sem título");
+
+                    if (hasCover || hasIcon || hasCustomTitle || ext == ".notion")
+                    {
+                        sb.Append("<!-- notionpad:");
+                        sb.Append("title=" + Uri.EscapeDataString(doc.Title ?? "") + ";");
+                        sb.Append("icon=" + Uri.EscapeDataString(doc.EmojiIcon ?? "") + ";");
+                        sb.Append("coverType=" + (doc.CoverType ?? "none") + ";");
+                        sb.Append("c1=" + Uri.EscapeDataString(doc.CoverValue1 ?? "") + ";");
+                        sb.Append("c2=" + Uri.EscapeDataString(doc.CoverValue2 ?? "") + ";");
+                        sb.Append("offset=" + doc.CoverOffsetY.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+                        sb.AppendLine(" -->");
+                    }
+
+                    sb.Append(range.Text);
+                    File.WriteAllText(doc.FilePath, sb.ToString(), Encoding.UTF8);
                 }
 
                 doc.UpdateTitle(doc.Title, false);
