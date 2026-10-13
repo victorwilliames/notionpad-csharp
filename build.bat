@@ -4,14 +4,14 @@ echo ===================================================
 echo               Compilando NotionPad
 echo ===================================================
 
-set CSC_PATH=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe
+set "CSC_PATH=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 if not exist "%CSC_PATH%" (
-    set CSC_PATH=C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe
+    set "CSC_PATH=C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 )
 
 if not exist "%CSC_PATH%" (
-    echo [ERRO] O compilador C# (csc.exe) nao foi encontrado no Windows.
+    echo [ERRO] O compilador C# csc.exe nao foi encontrado no Windows.
     pause
     exit /b 1
 )
