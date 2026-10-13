@@ -717,7 +717,7 @@ namespace NotionPad
     public class MainWindow : Window
     {
         private const string NOTEPAD_ICON_16_BASE64 =
-            "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABbUlEQVR42mNiQAOsBZM/AHEBPjYyYIIxco8//F5388t/djY2ficr0/6Kqx+BbFZ+ewvj/uKLb/+zAdnWpob9uWdf/Y/Zc/07TB8jjJF94ul/AX5ehn///zP8+/cfQoPZ/8D0fyTx9x8/Mix3UQfrZYEZ8Aeo8C9IMRbNMEPBhvyHqIMBuAEgiT9//zFMnLeUAR+ICwsAG4ZhwN+/EJO9nGyBNoEMBClCshnEA7JBav5gc8FfqKSslCTU2QjvIPwP8yY2A6BemL10NV4vhPp7gS3DDAOoF5xtLcFe+A808D/YCwwQGuQSoMY/+FwAMkBKQhzFC/+RYgHmBaxhAFIACsglazbi9YK3hwv2WAD5H2SyraUp3GZUL4AZYBdgTwdQCTFRUbDi/zhS5B9cBjD//QX0AifE7ygpDzNFsgDVYhiQ9XARg3FsA8Tp/yF+hLHR+aeXzGLYj27A3V1zPl/aMov3/38GgoCRkeELjA0A66qIBuX/MjQAAAAASUVORK5CYII=";
+            "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAE8ElEQVR4nO1bT0gzRxT/zWSTfGoPVaMEDy1SS+yl4tmDibVIEfSQg4ESDwHBg9DWg+Kl6tFbvfSgp+JBb+UTvEi/pv5Hj/WitAUpBA+SKKIh0exMefvtfsTy0WKc/SPuD8Yd9+2+mf3Ne2/e7E4AHz58+PDhw4cCMAC86ui03Idb4OaotAN4A2AHwGdVI2W33FVwAK8AaAB+BCDN8to8F3ZATkTUDO2JDy8YYyXGGKSUmpRSN2V1nPMKACoG7JBLKanAJMGoOEUAo4dvbm5uy+fzX0kpPwDwOYCAKf9YCPGteZ1xrWL5R0KIbwD8PTs7+3p+fl7USgKrdeQB9AD4uaGhoaWxsRGFQgHFYtG4IBwOo6WlhUbtbSOM4fLyEre3t8rkkUgEuVyO/v2tqalpuFAo3FS5iK1g2WyWLOf3vr4+eX5+Xr67u7tPp9O61YFEIiHoXKlUui8Wi/dUHx0dVSaPx+OiXC7f7+7uliORiGSMLRBJtVg0r+F6OT4+3grg04mJCRmNRoPBYJD8k1MnAoEAKpUKo3PhcNgoVBdCKJPrus5CoZDW09MTSCaTQkrZR+cB6HYTYODm5sa6jwkhDFMdHBw0jrquo7+/36hXKhXYKSfU19dzt2YBA5xzo6OpVArRaBTX19cYGhoyOqhpb9VTXbWc2iS5RYRrBBDMaRDxePzBOTvlqsBVKaJOknlScUPuqgVYMAORa3LXCSCQqVpFJcgCKN54ngDG2AP/9To0VYpoxOnBKTofHx+/m75UIRgMoqurC54kQJomTwSk02msra3BDkxNTWFhYUFpIOR44dBU+/3KyooxUna6gJkueysGMJMAys66u7vxXKC99GmQK9dokmCHTjv0aqoVWkvWF5sHXF1dYWdnR1kQtGILBcFEIoG6ujqllqCpzgNGRkawubkJOzA2NoalpSWleYAGxejs7MTBwYFBhgorqHapjo6Od+dUWYGmOkIvLi5ienraeHhVuq2XI/RCxLN5gAXqbFtbG+yA5WaenwWEotF3YpWpqVZID28HAZbpe94COOe2ZGzPJg84OzvDxsaG0sUQ6aU8IJlMPvhi5Mk8IJVK4fDwEHZga2sLq6ur3ssDWJVfDg8P4+LiwqirigWWWw0MDHgzDyBYfj8zM4PJyUmlZkq6KACGQiHv5wFCCOPrrR0g3aoDrKZUm2kJdixbLd2qoSnX+K+Y4HXwp9xs10g72QftKTeTr9OURAHJaTKsr8OUHzhJgKQ/0Wi0lMvlykdHR6/ou70bb4CsT+cnJyd0KNa6WYo9sl2rgQ8ZY39JKZsymYyMxWLMjpXaf80G1Nb+/r6+vr4eYIy9kVL2V+1fsp2AJs75n8lksnFvb0/m83mmMjn5306YbbW3t+utra2B7e3tXznnX9A2mscS8FgYhPX29tK2uHw2m5VSStqj4xYqc3NzxPovpks82hfZoykAApxzXUr5UywWG11eXjZGwVDmkAtYlnZ6eqpnMplAoVD4Tkr5A22mrN5caRc08/i1aW73VfvznCzCPNLK6JNap3XtCUSEOOcU/Mga3HgBIM2sM2COfE3QarjH2pa6LYQo0WZmtzI/c7X5B22ZdXKrLMGKtl8C+B5Ac9W+XidgucEZgGkAx7VMgXhih6sZt+pOEvC+9h1HwMGHfh+sH1TUDKaoI26R4P5qzIcPH3jO+AdYSMSF3AmUeQAAAABJRU5ErkJggg==";
 
         private List<TabDocument> _documents = new List<TabDocument>();
         private TabDocument _currentDoc;
@@ -1297,7 +1297,7 @@ namespace NotionPad
 
             if (_officialIconImage != null)
             {
-                _btnMenuToggle.Content = new Image
+                var img = new Image
                 {
                     Source = _officialIconImage,
                     Width = 16,
@@ -1306,6 +1306,8 @@ namespace NotionPad
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
+                RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                _btnMenuToggle.Content = img;
             }
             else
             {
@@ -3048,7 +3050,7 @@ namespace NotionPad
             FrameworkElement iconElem;
             if (_officialIconImage != null)
             {
-                iconElem = new Image
+                var img = new Image
                 {
                     Source = _officialIconImage,
                     Width = 16,
@@ -3058,6 +3060,8 @@ namespace NotionPad
                     Cursor = Cursors.Hand,
                     ToolTip = "Alternar barra de menus"
                 };
+                RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+                iconElem = img;
             }
             else
             {
