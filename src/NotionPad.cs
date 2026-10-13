@@ -2910,7 +2910,7 @@ namespace NotionPad
             {
                 doc.TitlePlaceholder.Visibility = string.IsNullOrEmpty(titleBox.Text) ? Visibility.Visible : Visibility.Collapsed;
                 doc.UpdateTitle(titleBox.Text, true);
-                Title = (doc.IsModified ? "* " : "") + (string.IsNullOrEmpty(doc.Title) ? "Sem título" : doc.Title) + " - NotionPad";
+                Title = (doc.IsModified ? "* " : "") + (string.IsNullOrEmpty(doc.Title) ? "Sem título" : doc.Title) + " - NotionPad C#";
             };
             titleGrid.Children.Add(titleBox);
             doc.TitleEditor = titleBox;
@@ -3281,7 +3281,7 @@ namespace NotionPad
             }
 
             string displayTitle = string.IsNullOrEmpty(doc.Title) ? "Sem título" : doc.Title;
-            Title = (doc.IsModified ? "* " : "") + displayTitle + " - NotionPad";
+            Title = (doc.IsModified ? "* " : "") + displayTitle + " - NotionPad C#";
             if (_statusLanguageBtn != null)
             {
                 string lang = string.IsNullOrEmpty(doc.Language) ? "Texto" : doc.Language;
@@ -3575,7 +3575,7 @@ namespace NotionPad
                 MetadataStore.SaveMetadata(doc.FilePath, meta);
 
                 doc.UpdateTitle(doc.Title, false);
-                Title = doc.Title + " - NotionPad";
+                Title = doc.Title + " - NotionPad C#";
                 return true;
             }
             catch (Exception ex)
@@ -3794,7 +3794,7 @@ namespace NotionPad
         {
             var dlg = new Window
             {
-                Title = "Configurações - NotionPad",
+                Title = "Configurações - NotionPad C#",
                 Width = 380,
                 Height = 300,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,

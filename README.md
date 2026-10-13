@@ -1,6 +1,6 @@
-# 📝 NotionPad
+# 📝 NotionPad C# (`notionpad-c#`)
 
-> **O Editor de Texto Minimalista e Ultrarrápido que une o melhor do Bloco de Notas do Windows, a sofisticação visual do Notion e o poder de código do Notepad++.**
+> **O Editor de Texto Minimalista e Ultrarrápido em C# nativo que une o melhor do Bloco de Notas do Windows, a sofisticação visual do Notion e o poder de código do Notepad++.**
 
 [![Platform](https://img.shields.io/badge/Plataforma-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://microsoft.com/windows)
 [![Tech](https://img.shields.io/badge/Tecnologia-C%23%20%7C%20WPF%20%7C%20.NET%204.8-512BD4?logo=csharp&logoColor=white)](https://dotnet.microsoft.com)
