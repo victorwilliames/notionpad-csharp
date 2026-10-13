@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Net;
 using System.Windows;
@@ -12,6 +13,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Markup;
 using System.Windows.Shell;
+using System.Windows.Threading;
 using Microsoft.Win32;
 
 namespace NotionPad
@@ -160,6 +162,7 @@ namespace NotionPad
         public string CoverValue1 { get; set; }
         public string CoverValue2 { get; set; }
         public double CoverOffsetY { get; set; }
+        public string Language { get; set; } // "HTML", "JavaScript", "CSS", "JSON", "XML", "Python", "C#", "SQL", "Markdown", "Texto"
 
         public ScrollViewer PageScroller { get; set; }
         public Border CoverBanner { get; set; }
@@ -194,6 +197,7 @@ namespace NotionPad
             CoverValue1 = null;
             CoverValue2 = null;
             CoverOffsetY = 0.0;
+            Language = "Texto";
         }
 
         public void UpdateTitle(string newTitle, bool modified)
@@ -239,6 +243,477 @@ namespace NotionPad
         }
     }
 
+    public class TextMatch
+    {
+        public TextPointer Start;
+        public TextPointer End;
+    }
+
+    public static class SyntaxHighlighter
+    {
+        public static readonly SolidColorBrush BrushKeyword;
+        public static readonly SolidColorBrush BrushTag;
+        public static readonly SolidColorBrush BrushAttribute;
+        public static readonly SolidColorBrush BrushString;
+        public static readonly SolidColorBrush BrushNumber;
+        public static readonly SolidColorBrush BrushComment;
+        public static readonly SolidColorBrush BrushType;
+        public static readonly SolidColorBrush BrushEntity;
+        public static readonly SolidColorBrush BrushMarkdownHeader;
+        public static readonly SolidColorBrush BrushDefault;
+
+        static SyntaxHighlighter()
+        {
+            BrushKeyword = new SolidColorBrush(Color.FromRgb(86, 156, 214)); BrushKeyword.Freeze();       // #569CD6
+            BrushTag = new SolidColorBrush(Color.FromRgb(86, 156, 214)); BrushTag.Freeze();               // #569CD6
+            BrushAttribute = new SolidColorBrush(Color.FromRgb(156, 220, 254)); BrushAttribute.Freeze(); // #9CDCFE
+            BrushString = new SolidColorBrush(Color.FromRgb(206, 145, 120)); BrushString.Freeze();       // #CE9178
+            BrushNumber = new SolidColorBrush(Color.FromRgb(181, 206, 168)); BrushNumber.Freeze();       // #B5CEA8
+            BrushComment = new SolidColorBrush(Color.FromRgb(106, 153, 85)); BrushComment.Freeze();       // #6A9955
+            BrushType = new SolidColorBrush(Color.FromRgb(78, 201, 176)); BrushType.Freeze();             // #4EC9B0
+            BrushEntity = new SolidColorBrush(Color.FromRgb(215, 186, 125)); BrushEntity.Freeze();       // #D7BA7D
+            BrushMarkdownHeader = new SolidColorBrush(Color.FromRgb(78, 201, 176)); BrushMarkdownHeader.Freeze(); // #4EC9B0
+            BrushDefault = new SolidColorBrush(Color.FromRgb(212, 212, 212)); BrushDefault.Freeze();       // #D4D4D4
+        }
+
+        public static string DetectLanguage(string filePath, string text)
+        {
+            if (!string.IsNullOrEmpty(filePath))
+            {
+                string ext = Path.GetExtension(filePath).ToLowerInvariant();
+                switch (ext)
+                {
+                    case ".html":
+                    case ".htm":
+                    case ".xhtml":
+                    case ".vue":
+                        return "HTML";
+                    case ".css":
+                    case ".scss":
+                    case ".less":
+                        return "CSS";
+                    case ".js":
+                    case ".jsx":
+                    case ".mjs":
+                    case ".cjs":
+                    case ".ts":
+                    case ".tsx":
+                        return "JavaScript";
+                    case ".json":
+                        return "JSON";
+                    case ".xml":
+                    case ".xaml":
+                    case ".svg":
+                    case ".config":
+                    case ".csproj":
+                        return "XML";
+                    case ".py":
+                    case ".pyw":
+                        return "Python";
+                    case ".cs":
+                        return "C#";
+                    case ".sql":
+                        return "SQL";
+                    case ".md":
+                    case ".markdown":
+                        return "Markdown";
+                    case ".txt":
+                    case ".log":
+                    case ".ini":
+                    case ".env":
+                        return "Texto";
+                }
+            }
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                string trimmed = text.TrimStart();
+                if (trimmed.StartsWith("<!DOCTYPE html", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+                    return "HTML";
+                if (trimmed.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase))
+                    return "XML";
+                if (trimmed.StartsWith("{") || trimmed.StartsWith("["))
+                    return "JSON";
+                if (trimmed.StartsWith("import ") || trimmed.StartsWith("def ") || (trimmed.StartsWith("class ") && trimmed.Contains(":")))
+                    return "Python";
+                if (trimmed.StartsWith("using System") || trimmed.Contains("namespace "))
+                    return "C#";
+                if (trimmed.StartsWith("SELECT ", StringComparison.OrdinalIgnoreCase) || trimmed.StartsWith("-- "))
+                    return "SQL";
+            }
+
+            return "Texto";
+        }
+
+        public static void ApplyHighlightingToDocument(FlowDocument doc, string language, string fullText)
+        {
+            if (doc == null) return;
+            doc.Blocks.Clear();
+
+            if (string.IsNullOrEmpty(fullText))
+            {
+                doc.Blocks.Add(new Paragraph { Margin = new Thickness(0) });
+                return;
+            }
+
+            string[] lines = fullText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var p = new Paragraph { Margin = new Thickness(0) };
+                PopulateParagraphWithTokens(p, lines[i], language);
+                doc.Blocks.Add(p);
+            }
+        }
+
+        public static void ApplyHighlightingToParagraph(Paragraph p, string language)
+        {
+            if (p == null) return;
+            var tr = new TextRange(p.ContentStart, p.ContentEnd);
+            string text = tr.Text.TrimEnd('\r', '\n');
+            p.Inlines.Clear();
+            PopulateParagraphWithTokens(p, text, language);
+        }
+
+        public static void PopulateParagraphWithTokens(Paragraph p, string lineText, string language)
+        {
+            if (string.IsNullOrEmpty(lineText))
+            {
+                p.Inlines.Add(new Run(""));
+                return;
+            }
+
+            if (language == "Texto")
+            {
+                p.Inlines.Add(new Run(lineText) { Foreground = BrushDefault });
+                return;
+            }
+
+            List<SyntaxToken> tokens = TokenizeLine(lineText, language);
+            for (int i = 0; i < tokens.Count; i++)
+            {
+                var t = tokens[i];
+                var run = new Run(t.Text) { Foreground = GetBrushForToken(t.Type) };
+                if (t.Type == SyntaxTokenType.MarkdownHeader)
+                {
+                    run.FontWeight = FontWeights.Bold;
+                }
+                p.Inlines.Add(run);
+            }
+        }
+
+        private static Brush GetBrushForToken(SyntaxTokenType type)
+        {
+            switch (type)
+            {
+                case SyntaxTokenType.Keyword: return BrushKeyword;
+                case SyntaxTokenType.Tag: return BrushTag;
+                case SyntaxTokenType.Attribute: return BrushAttribute;
+                case SyntaxTokenType.String: return BrushString;
+                case SyntaxTokenType.Number: return BrushNumber;
+                case SyntaxTokenType.Comment: return BrushComment;
+                case SyntaxTokenType.Type: return BrushType;
+                case SyntaxTokenType.Entity: return BrushEntity;
+                case SyntaxTokenType.MarkdownHeader: return BrushMarkdownHeader;
+                default: return BrushDefault;
+            }
+        }
+
+        public enum SyntaxTokenType
+        {
+            PlainText,
+            Keyword,
+            Tag,
+            Attribute,
+            String,
+            Number,
+            Comment,
+            Type,
+            Entity,
+            MarkdownHeader
+        }
+
+        public struct SyntaxToken
+        {
+            public string Text;
+            public SyntaxTokenType Type;
+            public SyntaxToken(string text, SyntaxTokenType type)
+            {
+                Text = text;
+                Type = type;
+            }
+        }
+
+        private static List<SyntaxToken> TokenizeLine(string line, string language)
+        {
+            var list = new List<SyntaxToken>();
+            if (string.IsNullOrEmpty(line)) return list;
+
+            switch (language)
+            {
+                case "HTML":
+                case "XML":
+                    TokenizeHtmlXml(line, list);
+                    break;
+                case "JavaScript":
+                case "JSON":
+                    TokenizeJs(line, list);
+                    break;
+                case "CSS":
+                    TokenizeCss(line, list);
+                    break;
+                case "Python":
+                    TokenizePython(line, list);
+                    break;
+                case "C#":
+                    TokenizeCSharp(line, list);
+                    break;
+                case "SQL":
+                    TokenizeSql(line, list);
+                    break;
+                case "Markdown":
+                    TokenizeMarkdown(line, list);
+                    break;
+                default:
+                    list.Add(new SyntaxToken(line, SyntaxTokenType.PlainText));
+                    break;
+            }
+            return list;
+        }
+
+        private static void TokenizeHtmlXml(string line, List<SyntaxToken> list)
+        {
+            var rx = new Regex(@"(<!--[\s\S]*?-->)|(<!DOCTYPE[^>]*>)|(<[^>]+>)|([^<]+)", RegexOptions.Compiled);
+            var matches = rx.Matches(line);
+            foreach (Match m in matches)
+            {
+                string v = m.Value;
+                if (v.StartsWith("<!--"))
+                {
+                    list.Add(new SyntaxToken(v, SyntaxTokenType.Comment));
+                }
+                else if (v.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
+                {
+                    list.Add(new SyntaxToken(v, SyntaxTokenType.Entity));
+                }
+                else if (v.StartsWith("<"))
+                {
+                    var tagRx = new Regex(@"(</?[a-zA-Z0-9_\-]+)|([a-zA-Z0-9_\-]+(?=\=))|(=)|(""[^""]*""|'[^']*')|(/?>)|(\s+)", RegexOptions.Compiled);
+                    var tagMatches = tagRx.Matches(v);
+                    int last = 0;
+                    foreach (Match tm in tagMatches)
+                    {
+                        if (tm.Index > last)
+                        {
+                            list.Add(new SyntaxToken(v.Substring(last, tm.Index - last), SyntaxTokenType.PlainText));
+                        }
+                        if (tm.Value.StartsWith("<") || tm.Value == ">" || tm.Value == "/>")
+                        {
+                            list.Add(new SyntaxToken(tm.Value, SyntaxTokenType.Tag));
+                        }
+                        else if (tm.Groups[2].Success)
+                        {
+                            list.Add(new SyntaxToken(tm.Value, SyntaxTokenType.Attribute));
+                        }
+                        else if (tm.Value.StartsWith("\"") || tm.Value.StartsWith("'"))
+                        {
+                            list.Add(new SyntaxToken(tm.Value, SyntaxTokenType.String));
+                        }
+                        else
+                        {
+                            list.Add(new SyntaxToken(tm.Value, SyntaxTokenType.PlainText));
+                        }
+                        last = tm.Index + tm.Length;
+                    }
+                    if (last < v.Length)
+                    {
+                        list.Add(new SyntaxToken(v.Substring(last), SyntaxTokenType.PlainText));
+                    }
+                }
+                else
+                {
+                    list.Add(new SyntaxToken(v, SyntaxTokenType.PlainText));
+                }
+            }
+        }
+
+        private static void TokenizeJs(string line, List<SyntaxToken> list)
+        {
+            var rx = new Regex(@"(//.*$|/\*[\s\S]*?\*/)|(""[^""\\]*(?:\\.[^""\\]*)*""|'[^'\\]*(?:\\.[^'\\]*)*'|`[^`\\]*(?:\\.[^`\\]*)*`)|(\b(break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|new|return|super|switch|this|throw|try|typeof|var|void|while|with|yield|let|static|async|await)\b)|(\b(true|false|null|undefined)\b)|(\b\d+(?:\.\d+)?\b)|(\b[a-zA-Z_$][a-zA-Z0-9_$]*(?=\s*:))", RegexOptions.Compiled);
+            TokenizeWithRegex(line, rx, list, 1, 2, 3, 4, 5, 6);
+        }
+
+        private static void TokenizeCss(string line, List<SyntaxToken> list)
+        {
+            var rx = new Regex(@"(/\*[\s\S]*?\*/)|(""[^""]*""|'[^']*')|([.#][a-zA-Z0-9_\-]+(?=[\s\{,]))|([a-zA-Z\-]+(?=\s*:))|(#[0-9a-fA-F]{3,8}|\b\d+(?:px|em|rem|%|vh|vw|s|ms|pt)?\b)", RegexOptions.Compiled);
+            int last = 0;
+            foreach (Match m in rx.Matches(line))
+            {
+                if (m.Index > last) list.Add(new SyntaxToken(line.Substring(last, m.Index - last), SyntaxTokenType.PlainText));
+                if (m.Groups[1].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Comment));
+                else if (m.Groups[2].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.String));
+                else if (m.Groups[3].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Entity));
+                else if (m.Groups[4].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Attribute));
+                else if (m.Groups[5].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Number));
+                else list.Add(new SyntaxToken(m.Value, SyntaxTokenType.PlainText));
+                last = m.Index + m.Length;
+            }
+            if (last < line.Length) list.Add(new SyntaxToken(line.Substring(last), SyntaxTokenType.PlainText));
+        }
+
+        private static void TokenizePython(string line, List<SyntaxToken> list)
+        {
+            var rx = new Regex(@"(#.*$)|(""""[\s\S]*?""""|'''[\s\S]*?'''|""[^""\\]*(?:\\.[^""\\]*)*""|'[^'\\]*(?:\\.[^'\\]*)*')|(\b(and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield|True|False|None|self)\b)|(\b\d+(?:\.\d+)?\b)|((?<=\bdef\s+)[a-zA-Z_][a-zA-Z0-9_]*|(?<=\bclass\s+)[a-zA-Z_][a-zA-Z0-9_]*)", RegexOptions.Compiled);
+            int last = 0;
+            foreach (Match m in rx.Matches(line))
+            {
+                if (m.Index > last) list.Add(new SyntaxToken(line.Substring(last, m.Index - last), SyntaxTokenType.PlainText));
+                if (m.Groups[1].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Comment));
+                else if (m.Groups[2].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.String));
+                else if (m.Groups[3].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Keyword));
+                else if (m.Groups[4].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Number));
+                else if (m.Groups[5].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Type));
+                else list.Add(new SyntaxToken(m.Value, SyntaxTokenType.PlainText));
+                last = m.Index + m.Length;
+            }
+            if (last < line.Length) list.Add(new SyntaxToken(line.Substring(last), SyntaxTokenType.PlainText));
+        }
+
+        private static void TokenizeCSharp(string line, List<SyntaxToken> list)
+        {
+            var rx = new Regex(@"(//.*$|/\*[\s\S]*?\*/)|(@""[^""]*(""""[^""]*)*""|""[^""\\]*(?:\\.[^""\\]*)*""|'[^'\\]*(?:\\.[^'\\]*)*')|(\b(abstract|as|base|bool|break|byte|case|catch|char|checked|class|const|continue|decimal|default|delegate|do|double|else|enum|event|explicit|extern|false|finally|fixed|float|for|foreach|goto|if|implicit|in|int|interface|internal|is|lock|long|namespace|new|null|object|operator|out|override|params|private|protected|public|readonly|ref|return|sbyte|sealed|short|sizeof|stackalloc|static|string|struct|switch|this|throw|true|try|typeof|uint|ulong|unchecked|unsafe|ushort|using|var|virtual|void|volatile|while)\b)|(\b\d+(?:\.\d+)?f?m?d?L?\b)|(\b[A-Z][a-zA-Z0-9_]*\b)", RegexOptions.Compiled);
+            int last = 0;
+            foreach (Match m in rx.Matches(line))
+            {
+                if (m.Index > last) list.Add(new SyntaxToken(line.Substring(last, m.Index - last), SyntaxTokenType.PlainText));
+                if (m.Groups[1].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Comment));
+                else if (m.Groups[2].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.String));
+                else if (m.Groups[3].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Keyword));
+                else if (m.Groups[4].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Number));
+                else if (m.Groups[5].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Type));
+                else list.Add(new SyntaxToken(m.Value, SyntaxTokenType.PlainText));
+                last = m.Index + m.Length;
+            }
+            if (last < line.Length) list.Add(new SyntaxToken(line.Substring(last), SyntaxTokenType.PlainText));
+        }
+
+        private static void TokenizeSql(string line, List<SyntaxToken> list)
+        {
+            var rx = new Regex(@"(--.*$|/\*[\s\S]*?\*/)|('[^']*')|(\b(SELECT|FROM|WHERE|INSERT|INTO|UPDATE|SET|DELETE|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|CREATE|TABLE|ALTER|DROP|INDEX|VIEW|TRIGGER|PRIMARY\s+KEY|FOREIGN\s+KEY|REFERENCES|DEFAULT|NULL|NOT\s+NULL|AND|OR|NOT|IN|LIKE|BETWEEN|IS|EXISTS|UNION|ALL|AS|DISTINCT|CASE|WHEN|THEN|ELSE|END|COUNT|SUM|AVG|MIN|MAX|VALUES|VARCHAR|INT|INTEGER|DATETIME|BOOLEAN|TEXT)\b)|(\b\d+(?:\.\d+)?\b)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            int last = 0;
+            foreach (Match m in rx.Matches(line))
+            {
+                if (m.Index > last) list.Add(new SyntaxToken(line.Substring(last, m.Index - last), SyntaxTokenType.PlainText));
+                if (m.Groups[1].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Comment));
+                else if (m.Groups[2].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.String));
+                else if (m.Groups[3].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Keyword));
+                else if (m.Groups[4].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Number));
+                else list.Add(new SyntaxToken(m.Value, SyntaxTokenType.PlainText));
+                last = m.Index + m.Length;
+            }
+            if (last < line.Length) list.Add(new SyntaxToken(line.Substring(last), SyntaxTokenType.PlainText));
+        }
+
+        private static void TokenizeMarkdown(string line, List<SyntaxToken> list)
+        {
+            if (line.StartsWith("#"))
+            {
+                list.Add(new SyntaxToken(line, SyntaxTokenType.MarkdownHeader));
+                return;
+            }
+            var rx = new Regex(@"(```[\s\S]*?```|`[^`]+`)|(\[[^\]]+\]\([^\)]+\))|(\*\*.*?\*\*|\*.*?\*)|(^\s*[-*+]\s|^\s*\d+\.\s)", RegexOptions.Compiled);
+            int last = 0;
+            foreach (Match m in rx.Matches(line))
+            {
+                if (m.Index > last) list.Add(new SyntaxToken(line.Substring(last, m.Index - last), SyntaxTokenType.PlainText));
+                if (m.Groups[1].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.String));
+                else if (m.Groups[2].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Keyword));
+                else if (m.Groups[3].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Type));
+                else if (m.Groups[4].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Entity));
+                else list.Add(new SyntaxToken(m.Value, SyntaxTokenType.PlainText));
+                last = m.Index + m.Length;
+            }
+            if (last < line.Length) list.Add(new SyntaxToken(line.Substring(last), SyntaxTokenType.PlainText));
+        }
+
+        private static void TokenizeWithRegex(string line, Regex rx, List<SyntaxToken> list, int commentGrp, int strGrp, int kwGrp, int boolGrp, int numGrp, int attrGrp)
+        {
+            int last = 0;
+            foreach (Match m in rx.Matches(line))
+            {
+                if (m.Index > last) list.Add(new SyntaxToken(line.Substring(last, m.Index - last), SyntaxTokenType.PlainText));
+                if (commentGrp > 0 && m.Groups[commentGrp].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Comment));
+                else if (strGrp > 0 && m.Groups[strGrp].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.String));
+                else if (kwGrp > 0 && m.Groups[kwGrp].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Keyword));
+                else if (boolGrp > 0 && m.Groups[boolGrp].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Number));
+                else if (numGrp > 0 && m.Groups[numGrp].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Number));
+                else if (attrGrp > 0 && m.Groups[attrGrp].Success) list.Add(new SyntaxToken(m.Value, SyntaxTokenType.Attribute));
+                else list.Add(new SyntaxToken(m.Value, SyntaxTokenType.PlainText));
+                last = m.Index + m.Length;
+            }
+            if (last < line.Length) list.Add(new SyntaxToken(line.Substring(last), SyntaxTokenType.PlainText));
+        }
+
+        public static List<TextMatch> FindAllMatches(RichTextBox rtb, string query, bool matchCase)
+        {
+            var results = new List<TextMatch>();
+            if (rtb == null || string.IsNullOrEmpty(query)) return results;
+
+            var comparison = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+            foreach (var block in rtb.Document.Blocks)
+            {
+                var p = block as Paragraph;
+                if (p == null) continue;
+
+                var pRange = new TextRange(p.ContentStart, p.ContentEnd);
+                string pText = pRange.Text;
+                if (string.IsNullOrEmpty(pText)) continue;
+
+                int idx = 0;
+                while (idx < pText.Length)
+                {
+                    int found = pText.IndexOf(query, idx, comparison);
+                    if (found == -1) break;
+
+                    TextPointer start = GetPointerAtOffset(p.ContentStart, found);
+                    TextPointer end = GetPointerAtOffset(start, query.Length);
+                    if (start != null && end != null)
+                    {
+                        var m = new TextMatch();
+                        m.Start = start;
+                        m.End = end;
+                        results.Add(m);
+                    }
+                    idx = found + Math.Max(1, query.Length);
+                }
+            }
+            return results;
+        }
+
+        public static TextPointer GetPointerAtOffset(TextPointer start, int offset)
+        {
+            if (start == null) return null;
+            TextPointer pos = start;
+            int remaining = offset;
+
+            while (pos != null && remaining > 0)
+            {
+                if (pos.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
+                {
+                    string text = pos.GetTextInRun(LogicalDirection.Forward);
+                    if (remaining <= text.Length)
+                    {
+                        return pos.GetPositionAtOffset(remaining);
+                    }
+                    remaining -= text.Length;
+                }
+                pos = pos.GetNextContextPosition(LogicalDirection.Forward);
+            }
+            return pos;
+        }
+    }
+
     public class MainWindow : Window
     {
         private const string NOTEPAD_ICON_16_BASE64 =
@@ -262,6 +737,7 @@ namespace NotionPad
         private TextBox _findBox;
         private TextBox _replaceBox;
         private CheckBox _matchCaseBox;
+        private TextBlock _findCountText;
         private StackPanel _replaceRow;
         private Button _btnMaxRestore;
         private Grid _statusBarGrid;
@@ -291,9 +767,17 @@ namespace NotionPad
         // Status Bar Items
         private TextBlock _statusLineCol;
         private TextBlock _statusChars;
+        private Button _statusLanguageBtn;
         private TextBlock _statusZoom;
         private TextBlock _statusFormat;
         private TextBlock _statusEncoding;
+
+        // Syntax Highlighting & Search State
+        private DispatcherTimer _highlightDebounceTimer;
+        private bool _isApplyingHighlighting = false;
+        private bool _rehighlightFullDocPending = false;
+        private List<TextMatch> _currentMatches = new List<TextMatch>();
+        private int _currentMatchIndex = -1;
 
         // Colors
         private SolidColorBrush _brushTopBarBg = new SolidColorBrush(Color.FromRgb(31, 31, 31));       // #1F1F1F
@@ -387,6 +871,52 @@ namespace NotionPad
                     }
                 }
             };
+
+            _highlightDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            _highlightDebounceTimer.Tick += HighlightDebounceTimer_Tick;
+        }
+
+        private void HighlightDebounceTimer_Tick(object sender, EventArgs e)
+        {
+            _highlightDebounceTimer.Stop();
+            if (_currentDoc == null || _currentDoc.Editor == null) return;
+            if (_currentDoc.Language == "Texto") return;
+
+            try
+            {
+                var rtb = _currentDoc.Editor;
+                if (_rehighlightFullDocPending)
+                {
+                    _rehighlightFullDocPending = false;
+                    var tr = new TextRange(rtb.Document.ContentStart, rtb.Document.ContentEnd);
+                    string txt = tr.Text;
+                    _isApplyingHighlighting = true;
+                    SyntaxHighlighter.ApplyHighlightingToDocument(rtb.Document, _currentDoc.Language, txt);
+                    _isApplyingHighlighting = false;
+                }
+                else
+                {
+                    var p = rtb.CaretPosition.Paragraph;
+                    if (p != null)
+                    {
+                        int caretOffset = new TextRange(p.ContentStart, rtb.CaretPosition).Text.Length;
+                        _isApplyingHighlighting = true;
+                        SyntaxHighlighter.ApplyHighlightingToParagraph(p, _currentDoc.Language);
+                        _isApplyingHighlighting = false;
+
+                        TextPointer newCaret = SyntaxHighlighter.GetPointerAtOffset(p.ContentStart, caretOffset);
+                        if (newCaret != null)
+                        {
+                            rtb.CaretPosition = newCaret;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                _isApplyingHighlighting = false;
+                _rehighlightFullDocPending = false;
+            }
         }
 
         private void InitDatabase()
@@ -1056,29 +1586,63 @@ namespace NotionPad
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Padding = new Thickness(4, 0, 4, 0)
             };
-            _findBox.KeyDown += (s, e) => { if (e.Key == Key.Enter) FindNext(true); };
+            _findBox.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) FindNext(false);
+                    else FindNext(true);
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    _findBar.Visibility = Visibility.Collapsed;
+                    _currentMatches.Clear();
+                    _currentMatchIndex = -1;
+                    if (_currentDoc != null) _currentDoc.Editor.Focus();
+                    e.Handled = true;
+                }
+            };
+            _findBox.TextChanged += (s, e) => UpdateFindSearch(true);
             rowFind.Children.Add(_findBox);
 
             var btnPrev = CreateSmallButton("\uE74A", (s, e) => FindNext(false), true);
+            btnPrev.ToolTip = "Anterior (Shift+Enter / Shift+F3)";
             rowFind.Children.Add(btnPrev);
 
             var btnNext = CreateSmallButton("\uE74B", (s, e) => FindNext(true), true);
+            btnNext.ToolTip = "Próximo (Enter / F3)";
             rowFind.Children.Add(btnNext);
+
+            _findCountText = new TextBlock
+            {
+                Text = "",
+                Foreground = _brushSubtext,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 10, 0),
+                MinWidth = 80
+            };
+            rowFind.Children.Add(_findCountText);
 
             _matchCaseBox = new CheckBox
             {
                 Content = "Diferenciar maiúsculas de minúsculas",
                 Foreground = _brushText,
-                Margin = new Thickness(12, 0, 8, 0),
+                Margin = new Thickness(8, 0, 8, 0),
                 VerticalAlignment = VerticalAlignment.Center
             };
+            _matchCaseBox.Click += (s, e) => UpdateFindSearch(true);
             rowFind.Children.Add(_matchCaseBox);
 
             var btnClose = CreateSmallButton("\uE8BB", (s, e) =>
             {
                 _findBar.Visibility = Visibility.Collapsed;
+                _currentMatches.Clear();
+                _currentMatchIndex = -1;
                 if (_currentDoc != null) _currentDoc.Editor.Focus();
             }, true);
+            btnClose.ToolTip = "Fechar (Esc)";
             btnClose.Margin = new Thickness(16, 0, 0, 0);
             rowFind.Children.Add(btnClose);
 
@@ -1097,12 +1661,22 @@ namespace NotionPad
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Padding = new Thickness(4, 0, 4, 0)
             };
+            _replaceBox.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    ReplaceOne();
+                    e.Handled = true;
+                }
+            };
             _replaceRow.Children.Add(_replaceBox);
 
             var btnReplace = CreateSmallButton("Substituir", (s, e) => ReplaceOne(), false);
+            btnReplace.ToolTip = "Substituir ocorrência atual e avançar";
             _replaceRow.Children.Add(btnReplace);
 
             var btnReplaceAll = CreateSmallButton("Substituir tudo", (s, e) => ReplaceAll(), false);
+            btnReplaceAll.ToolTip = "Substituir todas as ocorrências no documento";
             _replaceRow.Children.Add(btnReplaceAll);
 
             stack.Children.Add(_replaceRow);
@@ -1159,6 +1733,24 @@ namespace NotionPad
             _statusBarGrid.Children.Add(leftStack);
 
             var rightStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            _statusLanguageBtn = new Button
+            {
+                Content = "Texto \u25BE",
+                FontSize = 12,
+                Foreground = _brushSubtext,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(6, 2, 6, 2),
+                Margin = new Thickness(0, 0, 18, 0),
+                Cursor = Cursors.Hand,
+                Focusable = false,
+                FocusVisualStyle = null,
+                ToolTip = "Linguagem / Realce de Sintaxe"
+            };
+            ApplyCleanButtonStyle(_statusLanguageBtn);
+            _statusLanguageBtn.Click += (s, e) => ShowLanguageMenu();
+            rightStack.Children.Add(_statusLanguageBtn);
+
             _statusZoom = new TextBlock { Text = "100%", Foreground = _brushSubtext, FontSize = 12, Margin = new Thickness(0, 0, 24, 0) };
             _statusFormat = new TextBlock { Text = "Windows (CRLF)", Foreground = _brushSubtext, FontSize = 12, Margin = new Thickness(0, 0, 24, 0) };
             _statusEncoding = new TextBlock { Text = "UTF-8", Foreground = _brushSubtext, FontSize = 12 };
@@ -2341,6 +2933,8 @@ namespace NotionPad
             editorGrid.Children.Add(editorWatermark);
             doc.EditorPlaceholder = editorWatermark;
 
+            doc.Language = SyntaxHighlighter.DetectLanguage(filePath, content);
+
             var rtb = new RichTextBox
             {
                 Background = Brushes.Transparent,
@@ -2351,19 +2945,21 @@ namespace NotionPad
                 FontFamily = new FontFamily(_selectedFont),
                 AcceptsReturn = true,
                 AcceptsTab = true,
-                Margin = new Thickness(0)
+                Margin = new Thickness(0),
+                IsInactiveSelectionHighlightEnabled = true
             };
             rtb.Document.PagePadding = new Thickness(0);
 
             if (!string.IsNullOrEmpty(content))
             {
-                rtb.Document.Blocks.Clear();
-                var p = new Paragraph(new Run(content)) { Margin = new Thickness(0, 0, 0, 8) };
-                rtb.Document.Blocks.Add(p);
+                _isApplyingHighlighting = true;
+                SyntaxHighlighter.ApplyHighlightingToDocument(rtb.Document, doc.Language, content);
+                _isApplyingHighlighting = false;
             }
             else
             {
                 rtb.Document.Blocks.Clear();
+                rtb.Document.Blocks.Add(new Paragraph { Margin = new Thickness(0) });
             }
 
             rtb.PreviewKeyDown += (s, e) =>
@@ -2382,6 +2978,8 @@ namespace NotionPad
 
             rtb.TextChanged += (s, e) =>
             {
+                if (_isApplyingHighlighting) return;
+
                 var tr = new TextRange(rtb.Document.ContentStart, rtb.Document.ContentEnd);
                 bool isEmpty = string.IsNullOrWhiteSpace(tr.Text);
                 doc.EditorPlaceholder.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
@@ -2391,6 +2989,23 @@ namespace NotionPad
                     doc.UpdateTitle(doc.Title, true);
                 }
                 UpdateStatus();
+
+                if (doc.Language != "Texto")
+                {
+                    bool wasPaste = false;
+                    foreach (var change in e.Changes)
+                    {
+                        if (change.AddedLength > 80) { wasPaste = true; break; }
+                    }
+
+                    if (wasPaste)
+                    {
+                        _rehighlightFullDocPending = true;
+                    }
+
+                    _highlightDebounceTimer.Stop();
+                    _highlightDebounceTimer.Start();
+                }
             };
 
             rtb.PreviewMouseWheel += (s, e) =>
@@ -2667,6 +3282,15 @@ namespace NotionPad
 
             string displayTitle = string.IsNullOrEmpty(doc.Title) ? "Sem título" : doc.Title;
             Title = (doc.IsModified ? "* " : "") + displayTitle + " - NotionPad";
+            if (_statusLanguageBtn != null)
+            {
+                string lang = string.IsNullOrEmpty(doc.Language) ? "Texto" : doc.Language;
+                _statusLanguageBtn.Content = (lang == "Texto" ? "Texto" : lang) + " \u25BE";
+            }
+            if (_findBar != null && _findBar.Visibility == Visibility.Visible)
+            {
+                UpdateFindSearch(false);
+            }
             UpdateStatus();
             doc.Editor.Focus();
         }
@@ -2708,7 +3332,7 @@ namespace NotionPad
         {
             var dlg = new OpenFileDialog
             {
-                Filter = "Documentos de Texto (*.txt;*.md)|*.txt;*.md|Documento de Texto (*.txt)|*.txt|Documento Markdown (*.md)|*.md|Todos os arquivos (*.*)|*.*",
+                Filter = "Todos os arquivos de texto e código|*.txt;*.md;*.html;*.htm;*.css;*.js;*.json;*.xml;*.py;*.cs;*.sql;*.log|Documento de Texto (*.txt)|*.txt|Documento Markdown (*.md)|*.md|Páginas HTML (*.html;*.htm)|*.html;*.htm|Folhas de Estilo CSS (*.css)|*.css|JavaScript (*.js)|*.js|Arquivos JSON (*.json)|*.json|Arquivos XML (*.xml)|*.xml|Scripts Python (*.py)|*.py|Código C# (*.cs)|*.cs|Scripts SQL (*.sql)|*.sql|Todos os arquivos (*.*)|*.*",
                 Title = "Abrir"
             };
             if (dlg.ShowDialog() == true)
@@ -2899,16 +3523,31 @@ namespace NotionPad
         {
             if (string.IsNullOrEmpty(doc.FilePath) || saveAs)
             {
+                int filterIndex = 1;
+                string defExt = ".txt";
+
+                if (doc.Language == "Markdown") { filterIndex = 2; defExt = ".md"; }
+                else if (doc.Language == "HTML") { filterIndex = 3; defExt = ".html"; }
+                else if (doc.Language == "CSS") { filterIndex = 4; defExt = ".css"; }
+                else if (doc.Language == "JavaScript") { filterIndex = 5; defExt = ".js"; }
+                else if (doc.Language == "JSON") { filterIndex = 6; defExt = ".json"; }
+                else if (doc.Language == "XML") { filterIndex = 7; defExt = ".xml"; }
+                else if (doc.Language == "Python") { filterIndex = 8; defExt = ".py"; }
+                else if (doc.Language == "C#") { filterIndex = 9; defExt = ".cs"; }
+                else if (doc.Language == "SQL") { filterIndex = 10; defExt = ".sql"; }
+
                 var dlg = new SaveFileDialog
                 {
-                    Filter = "Documento de Texto (*.txt)|*.txt|Documento Markdown (*.md)|*.md|Todos os arquivos (*.*)|*.*",
-                    DefaultExt = ".txt",
+                    Filter = "Documento de Texto (*.txt)|*.txt|Documento Markdown (*.md)|*.md|Páginas HTML (*.html;*.htm)|*.html;*.htm|Folhas de Estilo CSS (*.css)|*.css|JavaScript (*.js)|*.js|Arquivos JSON (*.json)|*.json|Arquivos XML (*.xml)|*.xml|Scripts Python (*.py)|*.py|Código C# (*.cs)|*.cs|Scripts SQL (*.sql)|*.sql|Todos os arquivos (*.*)|*.*",
+                    FilterIndex = filterIndex,
+                    DefaultExt = defExt,
                     FileName = string.IsNullOrEmpty(doc.Title) ? "Sem título" : doc.Title
                 };
                 if (dlg.ShowDialog() == true)
                 {
                     doc.FilePath = dlg.FileName;
                     doc.Title = Path.GetFileNameWithoutExtension(dlg.FileName);
+                    doc.Language = SyntaxHighlighter.DetectLanguage(dlg.FileName, "");
                 }
                 else
                 {
@@ -2950,51 +3589,205 @@ namespace NotionPad
         {
             _findBar.Visibility = Visibility.Visible;
             _replaceRow.Visibility = showReplace ? Visibility.Visible : Visibility.Collapsed;
+
+            if (_currentDoc != null && _currentDoc.Editor != null && !_currentDoc.Editor.Selection.IsEmpty)
+            {
+                string sel = _currentDoc.Editor.Selection.Text.Trim();
+                if (!string.IsNullOrEmpty(sel) && !sel.Contains("\n") && !sel.Contains("\r"))
+                {
+                    _findBox.Text = sel;
+                }
+            }
+
             _findBox.Focus();
             _findBox.SelectAll();
+            UpdateFindSearch(true);
+        }
+
+        private void UpdateFindSearch(bool jumpToMatch)
+        {
+            if (_currentDoc == null || _currentDoc.Editor == null) return;
+            string query = _findBox.Text;
+            if (string.IsNullOrEmpty(query))
+            {
+                _currentMatches.Clear();
+                _currentMatchIndex = -1;
+                _findCountText.Text = "";
+                return;
+            }
+
+            bool matchCase = _matchCaseBox.IsChecked == true;
+            _currentMatches = SyntaxHighlighter.FindAllMatches(_currentDoc.Editor, query, matchCase);
+
+            if (_currentMatches.Count == 0)
+            {
+                _currentMatchIndex = -1;
+                _findCountText.Text = "Nenhum resultado";
+                _findCountText.Foreground = new SolidColorBrush(Color.FromRgb(244, 135, 113));
+                return;
+            }
+
+            _findCountText.Foreground = _brushSubtext;
+            _currentMatchIndex = 0;
+            TextPointer caret = _currentDoc.Editor.CaretPosition;
+            for (int i = 0; i < _currentMatches.Count; i++)
+            {
+                if (_currentMatches[i].Start.CompareTo(caret) >= 0)
+                {
+                    _currentMatchIndex = i;
+                    break;
+                }
+            }
+
+            _findCountText.Text = string.Format("{0} de {1}", _currentMatchIndex + 1, _currentMatches.Count);
+
+            if (jumpToMatch)
+            {
+                HighlightAndScrollToMatch(_currentMatchIndex);
+            }
+        }
+
+        private void HighlightAndScrollToMatch(int index)
+        {
+            if (_currentDoc == null || _currentDoc.Editor == null || index < 0 || index >= _currentMatches.Count) return;
+            var m = _currentMatches[index];
+            _currentDoc.Editor.Selection.Select(m.Start, m.End);
+            if (m.Start.Paragraph != null)
+            {
+                m.Start.Paragraph.BringIntoView();
+            }
         }
 
         private void FindNext(bool forward)
         {
-            if (_currentDoc == null || string.IsNullOrEmpty(_findBox.Text)) return;
-            string target = _findBox.Text;
-            var range = new TextRange(_currentDoc.Editor.Document.ContentStart, _currentDoc.Editor.Document.ContentEnd);
-            string text = range.Text;
-            bool matchCase = _matchCaseBox.IsChecked == true;
-            StringComparison comp = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            if (_currentDoc == null || _currentDoc.Editor == null || string.IsNullOrEmpty(_findBox.Text)) return;
 
-            int foundIdx = text.IndexOf(target, comp);
-            if (foundIdx != -1)
+            if (_currentMatches.Count == 0)
             {
-                MessageBox.Show("Termo \"" + target + "\" localizado no documento.", "NotionPad", MessageBoxButton.OK, MessageBoxImage.Information);
+                UpdateFindSearch(true);
+                return;
+            }
+
+            if (forward)
+            {
+                _currentMatchIndex = (_currentMatchIndex + 1) % _currentMatches.Count;
             }
             else
             {
-                MessageBox.Show("Não foi possível encontrar \"" + target + "\"", "NotionPad", MessageBoxButton.OK, MessageBoxImage.Information);
+                _currentMatchIndex = (_currentMatchIndex - 1 + _currentMatches.Count) % _currentMatches.Count;
             }
+
+            HighlightAndScrollToMatch(_currentMatchIndex);
+            _findCountText.Text = string.Format("{0} de {1}", _currentMatchIndex + 1, _currentMatches.Count);
         }
 
         private void ReplaceOne()
         {
-            if (_currentDoc == null || string.IsNullOrEmpty(_findBox.Text)) return;
+            if (_currentDoc == null || _currentDoc.Editor == null || string.IsNullOrEmpty(_findBox.Text)) return;
             string target = _findBox.Text;
             string replacement = _replaceBox.Text ?? "";
             var sel = _currentDoc.Editor.Selection;
-            if (!sel.IsEmpty && sel.Text.Equals(target, StringComparison.OrdinalIgnoreCase))
+            bool matchCase = _matchCaseBox.IsChecked == true;
+            var comp = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+            if (!sel.IsEmpty && sel.Text.Equals(target, comp))
             {
                 sel.Text = replacement;
+                _currentDoc.IsModified = true;
+                _currentDoc.UpdateTitle(_currentDoc.Title, true);
             }
             FindNext(true);
         }
 
         private void ReplaceAll()
         {
-            if (_currentDoc == null || string.IsNullOrEmpty(_findBox.Text)) return;
+            if (_currentDoc == null || _currentDoc.Editor == null || string.IsNullOrEmpty(_findBox.Text)) return;
             string target = _findBox.Text;
             string replacement = _replaceBox.Text ?? "";
-            var range = new TextRange(_currentDoc.Editor.Document.ContentStart, _currentDoc.Editor.Document.ContentEnd);
-            range.Text = range.Text.Replace(target, replacement);
+            bool matchCase = _matchCaseBox.IsChecked == true;
+            var rtb = _currentDoc.Editor;
+
+            var matches = SyntaxHighlighter.FindAllMatches(rtb, target, matchCase);
+            if (matches.Count == 0)
+            {
+                _findCountText.Text = "0 substituídos";
+                return;
+            }
+
+            int count = matches.Count;
+            for (int i = matches.Count - 1; i >= 0; i--)
+            {
+                var tr = new TextRange(matches[i].Start, matches[i].End);
+                tr.Text = replacement;
+            }
             _currentDoc.IsModified = true;
+            _currentDoc.UpdateTitle(_currentDoc.Title, true);
+            _findCountText.Text = string.Format("{0} substituídos", count);
+            _currentMatches.Clear();
+            _currentMatchIndex = -1;
+        }
+
+        private void ShowLanguageMenu()
+        {
+            if (_currentDoc == null || _statusLanguageBtn == null) return;
+
+            var menu = new ContextMenu
+            {
+                Background = _brushFloatingBg,
+                Foreground = _brushText,
+                BorderBrush = _brushBorder,
+                BorderThickness = new Thickness(1)
+            };
+
+            string[] languages = new string[]
+            {
+                "HTML",
+                "JavaScript",
+                "CSS",
+                "JSON",
+                "XML",
+                "Python",
+                "C#",
+                "SQL",
+                "Markdown",
+                "Texto"
+            };
+
+            foreach (string lang in languages)
+            {
+                string currentLang = lang;
+                var item = new MenuItem
+                {
+                    Header = (currentLang == "Texto" ? "Texto sem formatação" : currentLang) + (_currentDoc.Language == currentLang ? "  ✓" : ""),
+                    Foreground = _brushText,
+                    Background = Brushes.Transparent
+                };
+                item.Click += (s, e) =>
+                {
+                    SetDocumentLanguage(_currentDoc, currentLang);
+                };
+                menu.Items.Add(item);
+            }
+
+            menu.PlacementTarget = _statusLanguageBtn;
+            menu.Placement = PlacementMode.Top;
+            menu.IsOpen = true;
+        }
+
+        private void SetDocumentLanguage(TabDocument doc, string language)
+        {
+            if (doc == null || doc.Editor == null) return;
+            doc.Language = language;
+            if (_statusLanguageBtn != null && doc == _currentDoc)
+            {
+                _statusLanguageBtn.Content = (language == "Texto" ? "Texto" : language) + " \u25BE";
+            }
+
+            var range = new TextRange(doc.Editor.Document.ContentStart, doc.Editor.Document.ContentEnd);
+            string text = range.Text;
+            _isApplyingHighlighting = true;
+            SyntaxHighlighter.ApplyHighlightingToDocument(doc.Editor.Document, doc.Language, text);
+            _isApplyingHighlighting = false;
         }
 
         private void ShowSettingsDialog()
@@ -3110,12 +3903,44 @@ namespace NotionPad
             if (_currentDoc == null || _currentDoc.Editor == null) return;
 
             var rtb = _currentDoc.Editor;
+            try
+            {
+                TextPointer caret = rtb.CaretPosition;
+                int line = 1;
+                TextPointer lineStart = caret.GetLineStartPosition(0);
+                if (lineStart != null)
+                {
+                    TextPointer ptr = lineStart;
+                    int count = 0;
+                    while ((ptr = ptr.GetLineStartPosition(-1)) != null && count < 20000)
+                    {
+                        line++;
+                        count++;
+                    }
+                    int col = new TextRange(lineStart, caret).Text.Length + 1;
+                    _statusLineCol.Text = string.Format("Ln {0}, Col {1}", line, col);
+                }
+                else
+                {
+                    _statusLineCol.Text = "Ln 1, Col 1";
+                }
+            }
+            catch
+            {
+                _statusLineCol.Text = "Ln 1, Col 1";
+            }
+
             var range = new TextRange(rtb.Document.ContentStart, rtb.Document.ContentEnd);
             int chars = range.Text.Replace("\r\n", "").Length;
 
-            _statusLineCol.Text = "Ln 1, Col 1";
             _statusChars.Text = string.Format("{0} caracteres", chars);
             _statusZoom.Text = string.Format("{0}%", (int)(_currentZoom * 100));
+
+            if (_statusLanguageBtn != null)
+            {
+                string lang = string.IsNullOrEmpty(_currentDoc.Language) ? "Texto" : _currentDoc.Language;
+                _statusLanguageBtn.Content = (lang == "Texto" ? "Texto" : lang) + " \u25BE";
+            }
         }
 
         private void OpenNewWindow()
@@ -3151,6 +3976,12 @@ namespace NotionPad
                 else if (e.Key == Key.D0 || e.Key == Key.NumPad0) { SetZoom(1.0); e.Handled = true; }
                 else if (e.Key == Key.M) { ToggleMenuBar(); e.Handled = true; }
             }
+            else if (e.Key == Key.F3)
+            {
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) FindNext(false);
+                else FindNext(true);
+                e.Handled = true;
+            }
             else if (e.Key == Key.F10)
             {
                 ToggleMenuBar();
@@ -3172,6 +4003,8 @@ namespace NotionPad
                 if (_findBar.Visibility == Visibility.Visible)
                 {
                     _findBar.Visibility = Visibility.Collapsed;
+                    _currentMatches.Clear();
+                    _currentMatchIndex = -1;
                     if (_currentDoc != null) _currentDoc.Editor.Focus();
                     e.Handled = true;
                 }
